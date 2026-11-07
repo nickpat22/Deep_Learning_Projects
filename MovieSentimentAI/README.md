@@ -1,4 +1,5 @@
 # MovieSentiment AI
+Open [Streamlit Community Cloud](https://deeplearningprojects-moviesentimentai.streamlit.app/).
 
 A simple Streamlit web application that classifies movie reviews as **Positive** or **Negative** using an LSTM neural network trained on the Keras IMDB dataset.
 
@@ -55,7 +56,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open the local URL printed in the terminal, usually `http://localhost:8501`.
+Open the local URL printed in the terminal, usually `https://deeplearningprojects-moviesentimentai.streamlit.app/`.
 
 ## Deploy on Streamlit Community Cloud
 
