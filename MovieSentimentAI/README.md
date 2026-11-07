@@ -60,7 +60,7 @@ Open the local URL printed in the terminal, usually `http://localhost:8501`.
 ## Deploy on Streamlit Community Cloud
 
 1. Create a GitHub repository and upload the contents of this project.
-2. Open [Streamlit Community Cloud](https://share.streamlit.io/).
+2. Open [Streamlit Community Cloud](https://deeplearningprojects-moviesentimentai.streamlit.app/).
 3. Sign in with GitHub and select **Create app**.
 4. Select your repository, branch, and `app.py` as the main file.
 5. Deploy.
