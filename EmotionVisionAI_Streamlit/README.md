@@ -155,3 +155,24 @@ The current webcam implementation uses `cv2.VideoCapture(0)`. This captures vide
 
 **Nikunj Patidar**  
 GitHub: [@nickpat22](https://github.com/nickpat22)
+
+
+## Cloud webcam relay setup (required)
+
+The hosted webcam uses WebRTC. STUN alone cannot connect through every NAT/firewall, so this app uses Cloudflare Realtime TURN credentials.
+
+1. Create a Cloudflare account and open **Realtime → TURN Server**.
+2. Create a TURN key. Keep its **TURN Key ID** and **API Token** private.
+3. In Streamlit Community Cloud, open this app's **Manage app → Settings → Secrets**.
+4. Add the following TOML values (replace the placeholders with your own credentials):
+
+```toml
+CLOUDFLARE_TURN_KEY_ID = "your_turn_key_id"
+CLOUDFLARE_TURN_API_TOKEN = "your_turn_api_token"
+```
+
+5. Save the secrets and reboot the app. The app generates short-lived ICE credentials on the server; the long-lived API token is never sent to the browser.
+
+Do not commit these credentials to GitHub or paste them into public chats. Cloudflare TURN has a free usage allowance and may charge for usage beyond that allowance; check Cloudflare's current TURN pricing before enabling it.
+
+If the webcam component still cannot connect after configuring TURN, check the app logs for a TURN credential API error and test from another browser/network.
