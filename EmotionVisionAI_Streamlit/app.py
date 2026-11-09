@@ -1,180 +1,264 @@
 import json
-import logging
 from pathlib import Path
 
-import av
 import cv2
 import numpy as np
-import requests
 import streamlit as st
 import tensorflow as tf
-from streamlit_webrtc import (
-    RTCConfiguration,
-    VideoProcessorBase,
-    WebRtcMode,
-    webrtc_streamer,
-)
+
 
 # --------------------------------------------------
-# PAGE AND PATHS
+# 1. PAGE CONFIGURATION AND PROJECT PATHS
 # --------------------------------------------------
+
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models" / "emotion_model.keras"
 LABELS_PATH = BASE_DIR / "models" / "labels.json"
 
-st.set_page_config(page_title="EmotionVision AI", page_icon="😊", layout="centered")
+st.set_page_config(
+    page_title="EmotionVision AI",
+    page_icon="😊",
+    layout="centered",
+)
+
 st.title("😊 EmotionVision AI")
-st.caption("Real-time facial-expression classification using a CNN.")
+st.write("Facial-expression classification using a trained CNN.")
+st.caption(
+    "Take a photo with your device camera or upload an existing image. "
+    "The image is processed by the CNN on the app server."
+)
+
 
 # --------------------------------------------------
-# LOAD MODEL ONCE
+# 2. LOAD MODEL AND LABELS
 # --------------------------------------------------
+
 @st.cache_resource
 def load_model_and_labels():
-    if not MODEL_PATH.is_file() or not LABELS_PATH.is_file():
-        raise FileNotFoundError("Required files are missing from the models/ folder.")
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    with LABELS_PATH.open("r", encoding="utf-8") as f:
-        labels = json.load(f)
-    if model.input_shape[1:] != (48, 48, 1):
-        raise ValueError(f"Expected model input (48, 48, 1), got {model.input_shape}.")
-    if model.output_shape[-1] != len(labels):
-        raise ValueError("Model output count does not match models/labels.json.")
-    return model, labels
+    if not MODEL_PATH.is_file():
+        raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
+
+    if not LABELS_PATH.is_file():
+        raise FileNotFoundError(f"Labels file not found: {LABELS_PATH}")
+
+    loaded_model = tf.keras.models.load_model(
+        MODEL_PATH,
+        compile=False,
+    )
+
+    with LABELS_PATH.open("r", encoding="utf-8") as file:
+        loaded_labels = json.load(file)
+
+    if loaded_model.input_shape[1:] != (48, 48, 1):
+        raise ValueError(
+            f"Expected model input shape (48, 48, 1), "
+            f"received {loaded_model.input_shape}."
+        )
+
+    if loaded_model.output_shape[-1] != len(loaded_labels):
+        raise ValueError(
+            "The model output count does not match labels.json."
+        )
+
+    return loaded_model, loaded_labels
+
 
 try:
     model, emotion_labels = load_model_and_labels()
-except Exception as exc:
-    st.error(f"Model loading failed: {exc}")
+except Exception as error:
+    st.error(f"Could not load the trained model: {error}")
     st.stop()
 
-# --------------------------------------------------
-# CLOUDFLARE TURN CREDENTIALS
-# TURN is needed because STUN-only connectivity is not
-# reliable on Streamlit Community Cloud.
-# --------------------------------------------------
-@st.cache_data(ttl=3000, show_spinner=False)
-def get_ice_servers(key_id: str, api_token: str):
-    url = (
-        "https://rtc.live.cloudflare.com/v1/turn/keys/"
-        f"{key_id}/credentials/generate-ice-servers"
-    )
-    response = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {api_token}"},
-        json={"ttl": 3600},
-        timeout=15,
-    )
-    response.raise_for_status()
-    data = response.json()
-    servers = data.get("iceServers")
-    if not servers:
-        raise RuntimeError("Cloudflare returned no ICE servers.")
-    return servers
-
-try:
-    turn_key_id = st.secrets["CLOUDFLARE_TURN_KEY_ID"]
-    turn_api_token = st.secrets["CLOUDFLARE_TURN_API_TOKEN"]
-    ice_servers = get_ice_servers(turn_key_id, turn_api_token)
-    rtc_configuration = RTCConfiguration({"iceServers": ice_servers})
-except KeyError:
-    st.error(
-        "Webcam relay is not configured. Add CLOUDFLARE_TURN_KEY_ID and "
-        "CLOUDFLARE_TURN_API_TOKEN in Streamlit → App settings → Secrets. "
-        "See the README deployment section."
-    )
-    st.stop()
-except Exception as exc:
-    st.error(f"Could not obtain TURN credentials from Cloudflare: {exc}")
-    st.stop()
 
 # --------------------------------------------------
-# VIDEO PROCESSOR
+# 3. LOAD FACE DETECTOR
 # --------------------------------------------------
-class EmotionProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.face_detector = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        )
-        self.frame_count = 0
-        self.last_prediction = None
 
-    def recv(self, video_frame):
-        frame = video_frame.to_ndarray(format="bgr24")
-        frame = cv2.resize(frame, (480, 360), interpolation=cv2.INTER_AREA)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        faces = self.face_detector.detectMultiScale(
-            gray, scaleFactor=1.25, minNeighbors=5, minSize=(45, 45)
-        )
-        self.frame_count += 1
-
-        if len(faces) == 0:
-            self.last_prediction = None
-
-        for (x, y, w, h) in faces:
-            if self.frame_count % 3 == 1 or self.last_prediction is None:
-                face = cv2.resize(gray[y:y+h, x:x+w], (48, 48))
-                face = face.astype(np.float32) / 255.0
-                face = face.reshape(1, 48, 48, 1)
-                scores = self._model(face)
-                idx = int(np.argmax(scores))
-                self.last_prediction = (
-                    emotion_labels[idx],
-                    float(scores[idx]) * 100.0,
-                )
-
-            emotion, confidence = self.last_prediction
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            cv2.putText(
-                frame, f"{emotion.upper()} {confidence:.1f}%",
-                (x, max(24, y-10)), cv2.FONT_HERSHEY_SIMPLEX,
-                0.6, (0, 255, 0), 2,
-            )
-
-        return av.VideoFrame.from_ndarray(frame, format="bgr24")
-
-    def _model(self, face):
-        return model(face, training=False).numpy()[0]
-
-# --------------------------------------------------
-# BROWSER WEBCAM
-# --------------------------------------------------
-st.subheader("Live webcam")
-st.info("Select START, allow camera access, and keep this page open while detecting.")
-
-ctx = webrtc_streamer(
-    key="emotionvision-cloud-webcam-v2",
-    mode=WebRtcMode.SENDRECV,
-    rtc_configuration=rtc_configuration,
-    video_processor_factory=EmotionProcessor,
-    media_stream_constraints={
-        "video": {
-            "width": {"ideal": 480},
-            "height": {"ideal": 360},
-            "frameRate": {"ideal": 15, "max": 20},
-            "facingMode": "user",
-        },
-        "audio": False,
-    },
-    async_processing=True,
+cascade_file = (
+    cv2.data.haarcascades
+    + "haarcascade_frontalface_default.xml"
 )
 
-if ctx.state.playing:
-    st.success("Camera connected — emotion detection is running.")
-elif ctx.state.signalling:
-    st.info("Connecting webcam… If this takes more than 20 seconds, check camera permission and TURN configuration.")
-else:
-    st.caption("Camera is stopped. Press START to begin.")
+face_detector = cv2.CascadeClassifier(cascade_file)
+
+if face_detector.empty():
+    st.error("OpenCV face detector could not be loaded.")
+    st.stop()
+
+
+# --------------------------------------------------
+# 4. IMAGE PROCESSING AND EMOTION PREDICTION
+# --------------------------------------------------
+
+def analyze_image(image_bytes):
+    image_array = np.frombuffer(image_bytes, dtype=np.uint8)
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+    if image is None:
+        raise ValueError("The uploaded image could not be read.")
+
+    # Resize very large photos to keep processing memory reasonable.
+    height, width = image.shape[:2]
+    max_dimension = 1600
+
+    if max(height, width) > max_dimension:
+        scale = max_dimension / max(height, width)
+        image = cv2.resize(
+            image,
+            (int(width * scale), int(height * scale)),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    output_image = image.copy()
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    faces = face_detector.detectMultiScale(
+        gray,
+        scaleFactor=1.2,
+        minNeighbors=5,
+        minSize=(40, 40),
+    )
+
+    results = []
+
+    for face_number, (x, y, w, h) in enumerate(faces, start=1):
+        face = gray[y:y + h, x:x + w]
+        face = cv2.resize(face, (48, 48))
+        face = face.astype("float32") / 255.0
+        face = face.reshape(1, 48, 48, 1)
+
+        predictions = model(face, training=False).numpy()[0]
+
+        emotion_index = int(np.argmax(predictions))
+        emotion = emotion_labels[emotion_index]
+        confidence = float(predictions[emotion_index]) * 100
+
+        results.append({
+            "face": face_number,
+            "emotion": emotion,
+            "confidence": confidence,
+        })
+
+        # Draw face rectangle and predicted emotion.
+        cv2.rectangle(
+            output_image,
+            (x, y),
+            (x + w, y + h),
+            (0, 220, 0),
+            3,
+        )
+
+        label = f"{emotion.upper()} {confidence:.1f}%"
+        text_y = max(y - 12, 25)
+
+        cv2.putText(
+            output_image,
+            label,
+            (x, text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 220, 0),
+            2,
+            cv2.LINE_AA,
+        )
+
+    return image, output_image, results
+
+
+# --------------------------------------------------
+# 5. CAPTURE OR UPLOAD IMAGE
+# --------------------------------------------------
+
+st.subheader("1. Capture or upload a photo")
+
+capture_tab, upload_tab = st.tabs(
+    ["📸 Take a photo", "📁 Upload an image"]
+)
+
+with capture_tab:
+    camera_photo = st.camera_input(
+        "Take a photo using your device camera",
+        key="emotionvision_camera_photo",
+    )
+
+with upload_tab:
+    uploaded_photo = st.file_uploader(
+        "Choose a photo",
+        type=["jpg", "jpeg", "png"],
+        help="Upload a JPG or PNG image containing one or more faces.",
+        key="emotionvision_uploaded_photo",
+    )
+
+
+# --------------------------------------------------
+# 6. ANALYZE SELECTED PHOTO
+# --------------------------------------------------
+
+selected_photo = camera_photo if camera_photo is not None else uploaded_photo
+
+if selected_photo is not None:
+    st.subheader("2. Emotion detection")
+
+    try:
+        with st.spinner("Detecting faces and analyzing expressions..."):
+            original, processed, predictions = analyze_image(
+                selected_photo.getvalue()
+            )
+
+        original_rgb = cv2.cvtColor(original, cv2.COLOR_BGR2RGB)
+        processed_rgb = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.image(
+                original_rgb,
+                caption="Original photo",
+                use_container_width=True,
+            )
+
+        with col2:
+            st.image(
+                processed_rgb,
+                caption="Face detection and predictions",
+                use_container_width=True,
+            )
+
+        if predictions:
+            st.success(f"Detected {len(predictions)} face(s).")
+            st.subheader("Prediction results")
+
+            for result in predictions:
+                st.metric(
+                    label=f"Face {result['face']} — {result['emotion'].title()}",
+                    value=f"{result['confidence']:.2f}%",
+                    help="CNN softmax score; not a calibrated measure of certainty.",
+                )
+        else:
+            st.warning(
+                "No face was detected. Try a clearer, front-facing photo "
+                "with good lighting."
+            )
+
+    except Exception as error:
+        st.error(f"Image processing failed: {error}")
+
+
+# --------------------------------------------------
+# 7. MODEL INFORMATION
+# --------------------------------------------------
 
 with st.expander("About this model"):
+    st.write("**Model:** Convolutional Neural Network (CNN)")
     st.write("**Input:** 48 × 48 grayscale face image")
     st.write("**Output:** Seven facial-expression classes")
     st.write("**Classes:** " + ", ".join(emotion_labels))
     st.caption(
-        "Predictions classify visible facial-expression patterns; they do not "
-        "measure a person's actual internal emotional state."
+        "The model estimates visible facial-expression categories. "
+        "It does not determine a person's actual internal emotional state."
     )
 
 st.divider()
-st.caption("EmotionVision AI | CNN · TensorFlow · OpenCV · WebRTC")
+st.caption(
+    "EmotionVision AI | TensorFlow · OpenCV · Streamlit"
+)
