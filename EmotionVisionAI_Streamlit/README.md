@@ -1,23 +1,24 @@
 # EmotionVision AI
 
-Real-time facial-expression classification using a Convolutional Neural Network (CNN), TensorFlow/Keras, OpenCV, and Streamlit.
+🌐 **Live Website:** https://emotionvisionai.streamlit.app/
 
-The project has two stages: model training in Google Colab and local webcam inference through a Streamlit interface. Training is performed separately; the Streamlit app loads the saved model and does not retrain it at startup.
+A facial-expression classification web application built with Python, Streamlit, OpenCV, TensorFlow, and a trained Convolutional Neural Network (CNN). Users can take a photo with their device camera or upload an existing image. The application detects faces and predicts an expression class for each detected face.
 
-> **Scope note:** This project classifies visible facial-expression patterns. It does not determine a person's actual feelings, intentions, personality, or mental state. Predictions are estimates and can be incorrect.
+> **Important:** This project estimates visible facial-expression categories. It does not determine a person's actual feelings, intentions, personality, or mental state. Predictions may be inaccurate and should not be used for high-stakes decisions.
 
 ## Features
 
-- Face detection using OpenCV's Haar Cascade classifier
-- Seven-class facial-expression classification using a trained CNN
-- Live webcam preview with predicted class and confidence score
-- Start/stop camera controls
-- Separate Google Colab notebook for model training
-- Saved Keras model reused for inference
+- Capture a photo directly using the browser's camera through Streamlit's camera input
+- Upload JPG, JPEG, and PNG images
+- Detect multiple faces in a single image using OpenCV Haar Cascade
+- Classify each detected face into one of seven expression categories using a trained CNN
+- Display the original image and the processed image with face bounding boxes and predictions
+- Show the model's confidence score for each detected face
+- Reuse a saved Keras model; model training is separate from application inference
 
-## Emotion classes
+## Supported expression classes
 
-The model's class order is stored in `models/labels.json` and currently contains:
+The class order is stored in `models/labels.json`:
 
 - Angry
 - Disgust
@@ -31,13 +32,13 @@ The model's class order is stored in `models/labels.json` and currently contains
 
 | Component | Technology |
 |---|---|
-| Language | Python |
-| Deep learning | TensorFlow / Keras |
-| Model | Convolutional Neural Network (CNN) |
+| Programming language | Python |
+| Deep learning framework | TensorFlow / Keras |
+| Model architecture | Convolutional Neural Network (CNN) |
 | Face detection | OpenCV Haar Cascade |
-| User interface | Streamlit |
 | Image processing | OpenCV, NumPy |
-| Training environment | Google Colab |
+| Web application | Streamlit |
+| Model training environment | Google Colab |
 
 ## Project structure
 
@@ -54,30 +55,33 @@ EmotionVisionAI_Streamlit/
 
 ## How it works
 
-1. **Training:** The Colab notebook loads grayscale images from the FER-2013-style directory structure, resizes them to 48 × 48 pixels, normalizes pixel values, and trains a CNN.
-2. **Export:** The notebook saves the trained model as `emotion_model.keras` and the class order as `labels.json`.
-3. **Face detection:** The Streamlit application reads frames from the local webcam and detects faces using Haar Cascade.
-4. **Preprocessing:** Each detected face is converted to grayscale, resized to 48 × 48, and normalized to the range 0–1.
-5. **Inference:** The CNN predicts one of the seven expression classes. The application overlays the predicted class and confidence on the webcam frame.
+1. **Capture or upload:** The user takes a photo using the browser camera or selects an existing JPG, JPEG, or PNG image.
+2. **Image decoding:** OpenCV decodes the submitted image and resizes very large images to a maximum dimension of 1600 pixels.
+3. **Face detection:** OpenCV's Haar Cascade detects face regions in the image.
+4. **Preprocessing:** Each detected face is converted to grayscale, resized to 48 × 48 pixels, and normalized to the range 0–1.
+5. **CNN inference:** The trained Keras model predicts one of the seven expression classes for each detected face.
+6. **Result display:** The application shows the original photo, the annotated photo with bounding boxes and labels, and the prediction score for each face.
 
-### Model input and output
+## Model details
 
 | Property | Value |
 |---|---|
+| Saved model | `models/emotion_model.keras` |
 | Input shape | `(48, 48, 1)` |
 | Input format | Grayscale image |
 | Output shape | `(7,)` |
 | Output activation | Softmax |
-| Classes | 7 facial-expression categories |
+| Number of classes | 7 |
+
+The displayed confidence is the model's softmax score. It is not necessarily a calibrated probability or a measure of certainty about a person's actual emotional state.
 
 ## Run locally
 
 ### Prerequisites
 
-- Windows, macOS, or Linux
-- Python 3.11 recommended
-- A working webcam
+- Python 3.11
 - Git
+- A webcam if you want to take a photo directly in the browser
 
 ### 1. Clone the repository
 
@@ -95,6 +99,13 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
+**Windows Command Prompt**
+
+```cmd
+py -3.11 -m venv .venv
+.venv\Scripts\activate.bat
+```
+
 **macOS / Linux**
 
 ```bash
@@ -109,17 +120,35 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Start the application
+### 4. Run the application
 
 ```bash
 streamlit run app.py
 ```
 
-Open the local URL shown in the terminal. Keep the webcam connected and close other applications that may be using it.
+Open the local URL printed in the terminal.
+
+## Deploy on Streamlit Community Cloud
+
+The application is deployed at:
+
+**https://emotionvisionai.streamlit.app/**
+
+To deploy your own copy:
+
+1. Fork or push this repository to your GitHub account.
+2. Open [Streamlit Community Cloud](https://share.streamlit.io/).
+3. Create an app using your repository.
+4. Set the branch to `main`.
+5. Set the main file path to `EmotionVisionAI_Streamlit/app.py`.
+6. Select **Python 3.11** in the deployment settings.
+7. Deploy the app.
+
+The application uses Streamlit's photo capture and file uploader components. It does not require WebRTC, a TURN server, Cloudflare credentials, or paid webcam-relay services.
 
 ## Train the model
 
-Open `EmotionVisionAI_Colab_Training.ipynb` in Google Colab and run its cells in order. The notebook expects a dataset ZIP containing:
+The notebook `EmotionVisionAI_Colab_Training.ipynb` contains the model-training workflow. Open it in Google Colab and follow its cells. The training notebook expects a dataset arranged into class-specific training and testing folders, for example:
 
 ```text
 dataset/
@@ -133,19 +162,15 @@ dataset/
     └── ...
 ```
 
-The folder names are used as class labels. After training, export the model and label files and place them in the local `models/` directory. The dataset itself is not required to run the inference application.
-
-## Important deployment limitation
-
-The current webcam implementation uses `cv2.VideoCapture(0)`. This captures video from the machine running the Streamlit Python process. It is suitable for local execution, but it will **not** access a visitor's webcam when hosted on a cloud server. Cloud deployment requires a browser-side camera/WebRTC implementation and appropriate hosting/network support.
+The saved model and label file are required for inference. The training dataset is not needed to run the deployed application.
 
 ## Limitations
 
-- FER-2013 is a challenging dataset; class imbalance and image quality can affect predictions.
-- Lighting, camera angle, occlusion, and face size can reduce detection and classification quality.
-- Confidence scores are model outputs, not calibrated probabilities of a person's true emotional state.
-- Haar Cascade may miss faces or produce false detections.
-- The current implementation is intended for local webcam inference, not production or high-stakes use.
+- Face detection may fail with poor lighting, unusual camera angles, occlusion, or small faces.
+- Haar Cascade can produce false detections or miss faces.
+- Model predictions depend on the training data and may not generalize to all people or environments.
+- The confidence score is a model output, not a verified measure of a person's internal emotional state.
+- The app analyzes submitted photos; it does not perform continuous real-time video emotion tracking.
 
 ## Repository
 
@@ -155,24 +180,3 @@ The current webcam implementation uses `cv2.VideoCapture(0)`. This captures vide
 
 **Nikunj Patidar**  
 GitHub: [@nickpat22](https://github.com/nickpat22)
-
-
-## Cloud webcam relay setup (required)
-
-The hosted webcam uses WebRTC. STUN alone cannot connect through every NAT/firewall, so this app uses Cloudflare Realtime TURN credentials.
-
-1. Create a Cloudflare account and open **Realtime → TURN Server**.
-2. Create a TURN key. Keep its **TURN Key ID** and **API Token** private.
-3. In Streamlit Community Cloud, open this app's **Manage app → Settings → Secrets**.
-4. Add the following TOML values (replace the placeholders with your own credentials):
-
-```toml
-CLOUDFLARE_TURN_KEY_ID = "your_turn_key_id"
-CLOUDFLARE_TURN_API_TOKEN = "your_turn_api_token"
-```
-
-5. Save the secrets and reboot the app. The app generates short-lived ICE credentials on the server; the long-lived API token is never sent to the browser.
-
-Do not commit these credentials to GitHub or paste them into public chats. Cloudflare TURN has a free usage allowance and may charge for usage beyond that allowance; check Cloudflare's current TURN pricing before enabling it.
-
-If the webcam component still cannot connect after configuring TURN, check the app logs for a TURN credential API error and test from another browser/network.
